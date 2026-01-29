@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: semasms-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: semasms_db
+      MYSQL_USER: semasms
+      MYSQL_PASSWORD: semasms_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - semasms-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: semasms-backend
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=semasms
+      - DB_PASSWORD=semasms_password
+      - DB_NAME=semasms_db
+      # Optional: Set default SMS credentials via environment
+      # - SEMASMS_USERNAME=your_username
+      # - SEMASMS_PASSWORD=your_password
+      # - SEMASMS_SENDER_ID=your_sender_id
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - semasms-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # Frontend (Nginx + React)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: semasms-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - semasms-network
+
+networks:
+  semasms-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local

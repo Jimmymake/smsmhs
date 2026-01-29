@@ -1,0 +1,114 @@
+.app {
+  min-height: 100vh;
+  padding: var(--spacing-xl) var(--spacing-md);
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg-secondary) 100%);
+  transition: background 0.3s ease;
+}
+
+[data-theme="dark"] .app {
+  background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg) 100%);
+}
+
+.container {
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+/* Dashboard Header */
+.dashboard-header {
+  position: relative;
+  margin-bottom: var(--spacing-lg);
+}
+
+.header-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.history-btn,
+.logout-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 8px 14px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.history-btn svg,
+.logout-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.history-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: rgba(37, 99, 235, 0.05);
+}
+
+.logout-btn:hover {
+  color: var(--error);
+  border-color: var(--error);
+  background: rgba(220, 38, 38, 0.05);
+}
+
+.card {
+  background: var(--bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  padding: var(--spacing-xl);
+  border: 1px solid var(--border-light);
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.btn-reset {
+  display: block;
+  width: 100%;
+  margin-top: var(--spacing-lg);
+  padding: var(--spacing-md);
+  background: var(--bg);
+  color: var(--text);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-reset:hover {
+  background: var(--bg-secondary);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.footer {
+  text-align: center;
+  padding: var(--spacing-lg);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .app {
+    padding: var(--spacing-md) var(--spacing-sm);
+  }
+  
+  .card {
+    padding: var(--spacing-lg);
+    border-radius: var(--radius-md);
+  }
+}
