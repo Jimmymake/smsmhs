@@ -17,24 +17,28 @@ export function LoginPage({ onLogin }) {
 
     // Admin credentials from environment variables
     const validUsers = [
-      { 
-        user: import.meta.env.VITE_ADMIN_USER_1 || 'jasmin@mam-laka.com', 
-        pass: import.meta.env.VITE_ADMIN_PASS_1 || '@mam-laka2026.' 
+      {
+        user: import.meta.env.VITE_ADMIN_USER_1 || 'jasmin@mam-laka.com',
+        pass: import.meta.env.VITE_ADMIN_PASS_1 || '@mam-laka2026.'
       },
-      { 
-        user: import.meta.env.VITE_ADMIN_USER_2 || 'jimmy@mam-laka.com', 
-        pass: import.meta.env.VITE_ADMIN_PASS_2 || '@jimmy123' 
+      {
+        user: import.meta.env.VITE_ADMIN_USER_2 || 'jimmy@mam-laka.com',
+        pass: import.meta.env.VITE_ADMIN_PASS_2 || '@jimmy123'
+      },
+      {
+        user: import.meta.env.VITE_ADMIN_USER_2 || 'rose@mam-laka.com',
+        pass: import.meta.env.VITE_ADMIN_PASS_2 || '@mam-laka2026.'
       }
     ];
 
     const isValid = validUsers.some(cred => cred.user === username && cred.pass === password);
-    
+
     if (isValid) {
       onLogin({ username });
     } else {
       setError('Invalid username or password');
     }
-    
+
     setIsLoading(false);
   };
 
@@ -45,8 +49,8 @@ export function LoginPage({ onLogin }) {
         <div className="login-hero">
           <div className="login-logo">
             <div className="login-logo__icon">
-              <img src="/src/assets/logo/mamlaka logo.png" alt="Mam-laka Bulk SMS" />      
-             
+              <img src="/mamlaka logo.png" alt="Mam-laka Bulk SMS" />
+
             </div>
             <h1 className="login-logo__text">Mam-laka Bulk SMS</h1>
             <span className="login-logo__tagline">Bulk SMS Platform</span>
@@ -147,8 +151,8 @@ export function LoginPage({ onLogin }) {
                 </div>
               </div>
 
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 className="login-btn"
                 disabled={isLoading || !username || !password}
               >
