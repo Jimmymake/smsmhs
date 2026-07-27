@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import jwt from 'jsonwebtoken';
 import {
   initDatabase,
   createBatch,
@@ -13,16 +14,27 @@ import {
   getStatistics,
   getTotalBatches,
   getTotalRecords,
+  getSmsContacts,
   searchByRecipient
 } from './database.js';
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 
 // Middleware
-app.use(cors());
+const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || 'http://localhost:5173')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Origin not allowed by CORS'));
+  }
+}));
 app.use(express.json());
 
 // SemaSMS API configuration
@@ -39,10 +51,43 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+function requireStaffToken(req, res, next) {
+  const secret = process.env.BET_DASH_JWT_SECRET;
+  if (!secret) {
+    return res.status(503).json({ success: false, error: 'SMS authentication is not configured' });
+  }
+
+  const [scheme, token] = (req.headers.authorization || '').split(' ');
+  if (scheme !== 'Bearer' || !token) {
+    return res.status(401).json({ success: false, error: 'Bearer token required' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, secret);
+    const role = decoded.adminLevel
+      || decoded.loginRole
+      || decoded.role
+      || decoded.user?.role
+      || decoded.account?.role;
+    const normalizedRole = role === 'superadmin' ? 'super_admin' : role;
+
+    if (!['support', 'admin', 'super_admin'].includes(normalizedRole)) {
+      return res.status(403).json({ success: false, error: 'Staff access required' });
+    }
+
+    req.staff = decoded;
+    return next();
+  } catch {
+    return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+  }
+}
+
+app.use('/api/sms', requireStaffToken);
+
 // Send single SMS
 app.post('/api/sms/send', async (req, res) => {
   try {
-    const { recipient, message, credentials, senderId } = req.body;
+    const { recipient, message } = req.body;
 
     if (!recipient || !message) {
       return res.status(400).json({ 
@@ -51,9 +96,9 @@ app.post('/api/sms/send', async (req, res) => {
       });
     }
 
-    const username = credentials?.username || process.env.SEMASMS_USERNAME;
-    const password = credentials?.password || process.env.SEMASMS_PASSWORD;
-    const sender = senderId || process.env.SEMASMS_SENDER_ID;
+    const username = process.env.SEMASMS_USERNAME;
+    const password = process.env.SEMASMS_PASSWORD;
+    const sender = process.env.SEMASMS_SENDER_ID;
 
     if (!username || !password || !sender) {
       return res.status(400).json({ 
@@ -104,7 +149,7 @@ app.post('/api/sms/send', async (req, res) => {
 // Send bulk SMS (sequential with delay)
 app.post('/api/sms/bulk', async (req, res) => {
   try {
-    const { recipients, message, credentials, senderId, delay = 500 } = req.body;
+    const { recipients, message, delay = 500 } = req.body;
 
     if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
       return res.status(400).json({ 
@@ -120,9 +165,25 @@ app.post('/api/sms/bulk', async (req, res) => {
       });
     }
 
-    const username = credentials?.username || process.env.SEMASMS_USERNAME;
-    const password = credentials?.password || process.env.SEMASMS_PASSWORD;
-    const sender = senderId || process.env.SEMASMS_SENDER_ID;
+    if (recipients.length > 1000) {
+      return res.status(400).json({
+        success: false,
+        error: 'A batch cannot exceed 1000 recipients'
+      });
+    }
+
+    if (message.length > 480) {
+      return res.status(400).json({
+        success: false,
+        error: 'Message cannot exceed 480 characters'
+      });
+    }
+
+    const sendDelay = Math.min(Math.max(Number(delay) || 500, 250), 5000);
+
+    const username = process.env.SEMASMS_USERNAME;
+    const password = process.env.SEMASMS_PASSWORD;
+    const sender = process.env.SEMASMS_SENDER_ID;
 
     if (!username || !password || !sender) {
       return res.status(400).json({ 
@@ -179,7 +240,7 @@ app.post('/api/sms/bulk', async (req, res) => {
 
       // Add delay between messages (except for last one)
       if (i < recipients.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise(resolve => setTimeout(resolve, sendDelay));
       }
     }
 
@@ -239,10 +300,22 @@ app.get('/api/sms/batches', async (req, res) => {
   }
 });
 
+// Get reusable recipients from successful sends
+app.get('/api/sms/contacts', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 500;
+    const contacts = await getSmsContacts(limit, req.query.search || '');
+    res.json({ success: true, data: contacts });
+  } catch (error) {
+    console.error('Contacts error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Get specific batch with its records
 app.get('/api/sms/batches/:id', async (req, res) => {
   try {
-    const batchId = parseInt(req.params.id);
+    const batchId = req.params.id;
     const batch = await getBatch(batchId);
     
     if (!batch) {

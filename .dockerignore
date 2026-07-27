@@ -1,5 +1,4 @@
 node_modules
-dist
 .git
 .gitignore
 *.md
@@ -11,8 +10,6 @@ dist
 *.log
 npm-debug.log*
 .DS_Store
-coverage
-.nyc_output
 
 
 
