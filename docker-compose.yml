@@ -3,6 +3,8 @@ services:
     image: mongo:7
     container_name: semasms-mongo
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:27017:27017"
     volumes:
       - mongo_data:/data/db
     networks:
@@ -35,7 +37,7 @@ services:
     networks:
       - semasms-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3001/api/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:3033/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
