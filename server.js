@@ -6,6 +6,7 @@ import {
   initDatabase,
   createBatch,
   completeBatch,
+  updateBatchProgress,
   saveSmsRecord,
   getSmsBatches,
   getBatch,
@@ -35,7 +36,7 @@ app.use(cors({
     return callback(new Error('Origin not allowed by CORS'));
   }
 }));
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 // SemaSMS API configuration
 const SEMASMS_API_URL = 'https://portal-api.semasms.co.ke/send';
@@ -146,7 +147,55 @@ app.post('/api/sms/send', async (req, res) => {
   }
 });
 
-// Send bulk SMS (sequential with delay)
+async function processBulkSms({ batchId, recipients, message, sendDelay, username, password, sender }) {
+  let sent = 0;
+  let failed = 0;
+
+  for (let i = 0; i < recipients.length; i++) {
+    const recipient = recipients[i];
+
+    try {
+      const response = await fetch(SEMASMS_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': getAuthHeader(username, password)
+        },
+        body: JSON.stringify({
+          sender,
+          recipient,
+          message,
+          bulk: '1'
+        })
+      });
+
+      const data = await response.text();
+
+      if (response.ok) {
+        sent++;
+        await saveSmsRecord(batchId, recipient, message, sender, 'success', data, null);
+      } else {
+        failed++;
+        await saveSmsRecord(batchId, recipient, message, sender, 'failed', null, data);
+      }
+    } catch (error) {
+      failed++;
+      await saveSmsRecord(batchId, recipient, message, sender, 'failed', null, error.message);
+    }
+
+    if ((i + 1) % 10 === 0) {
+      await updateBatchProgress(batchId, sent, failed);
+    }
+
+    if (i < recipients.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, sendDelay));
+    }
+  }
+
+  await completeBatch(batchId, sent, failed);
+}
+
+// Queue bulk SMS and return immediately so large batches do not hit proxy timeouts.
 app.post('/api/sms/bulk', async (req, res) => {
   try {
     const { recipients, message, delay = 500 } = req.body;
@@ -165,10 +214,10 @@ app.post('/api/sms/bulk', async (req, res) => {
       });
     }
 
-    if (recipients.length > 1000) {
+    if (recipients.length > 10000) {
       return res.status(400).json({
         success: false,
-        error: 'A batch cannot exceed 1000 recipients'
+        error: 'A batch cannot exceed 10000 recipients'
       });
     }
 
@@ -195,59 +244,37 @@ app.post('/api/sms/bulk', async (req, res) => {
     // Create batch record
     const batchId = await createBatch(sender, message, recipients.length);
 
-    const results = {
-      batchId,
-      total: recipients.length,
-      sent: 0,
-      failed: 0,
-      details: []
-    };
-
-    for (let i = 0; i < recipients.length; i++) {
-      const recipient = recipients[i];
-
-      try {
-        const response = await fetch(SEMASMS_API_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': getAuthHeader(username, password)
-          },
-          body: JSON.stringify({
-            sender,
-            recipient,
-            message,
-            bulk: '1'
-          })
-        });
-
-        const data = await response.text();
-
-        if (response.ok) {
-          results.sent++;
-          results.details.push({ recipient, status: 'success', response: data });
-          await saveSmsRecord(batchId, recipient, message, sender, 'success', data, null);
-        } else {
-          results.failed++;
-          results.details.push({ recipient, status: 'failed', error: data });
-          await saveSmsRecord(batchId, recipient, message, sender, 'failed', null, data);
+    setImmediate(() => {
+      processBulkSms({
+        batchId,
+        recipients: [...recipients],
+        message,
+        sendDelay,
+        username,
+        password,
+        sender
+      }).catch(async error => {
+        console.error(`Bulk SMS batch ${batchId} failed:`, error);
+        try {
+          const batch = await getBatch(batchId);
+          await completeBatch(batchId, batch?.sent_count || 0, batch?.failed_count || 0);
+        } catch (completionError) {
+          console.error(`Could not mark batch ${batchId} as failed:`, completionError);
         }
-      } catch (error) {
-        results.failed++;
-        results.details.push({ recipient, status: 'failed', error: error.message });
-        await saveSmsRecord(batchId, recipient, message, sender, 'failed', null, error.message);
+      });
+    });
+
+    res.status(202).json({
+      success: true,
+      queued: true,
+      results: {
+        batchId,
+        total: recipients.length,
+        sent: 0,
+        failed: 0,
+        details: []
       }
-
-      // Add delay between messages (except for last one)
-      if (i < recipients.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, sendDelay));
-      }
-    }
-
-    // Update batch with final counts
-    await completeBatch(batchId, results.sent, results.failed);
-
-    res.json({ success: true, results });
+    });
   } catch (error) {
     console.error('Bulk SMS error:', error);
     res.status(500).json({ 

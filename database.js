@@ -106,6 +106,14 @@ export async function completeBatch(batchId, sentCount, failedCount) {
   });
 }
 
+export async function updateBatchProgress(batchId, sentCount, failedCount) {
+  await SmsBatch.findByIdAndUpdate(batchId, {
+    sent_count: sentCount,
+    failed_count: failedCount,
+    status: 'sending'
+  });
+}
+
 export async function saveSmsRecord(
   batchId,
   recipient,

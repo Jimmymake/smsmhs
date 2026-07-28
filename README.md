@@ -35,3 +35,7 @@ built or served by this Compose stack.
 
 The health endpoint remains public at `GET /api/health`. All `/api/sms/*`
 endpoints require a valid ShilingiBet staff bearer token.
+
+Bulk requests accept up to 10,000 recipients. The API responds with `202 Accepted`
+and a batch ID while delivery continues in the background. Use
+`GET /api/sms/batches/:id` to monitor the batch status and delivery counts.
