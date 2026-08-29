@@ -3,6 +3,13 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import {
+  assertProviderConfigured,
+  normalizeProvider,
+  providerSender,
+  providerStatus,
+  sendSms
+} from './providers/index.js';
+import {
   initDatabase,
   createBatch,
   completeBatch,
@@ -37,15 +44,6 @@ app.use(cors({
   }
 }));
 app.use(express.json({ limit: '1mb' }));
-
-// SemaSMS API configuration
-const SEMASMS_API_URL = 'https://portal-api.semasms.co.ke/send';
-
-// Generate Basic Auth header
-function getAuthHeader(username, password) {
-  const credentials = Buffer.from(`${username}:${password}`).toString('base64');
-  return `Basic ${credentials}`;
-}
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -85,10 +83,19 @@ function requireStaffToken(req, res, next) {
 
 app.use('/api/sms', requireStaffToken);
 
+app.get('/api/sms/providers', (_req, res) => {
+  res.json({
+    success: true,
+    data: providerStatus(),
+    defaultProvider: normalizeProvider(),
+  });
+});
+
 // Send single SMS
 app.post('/api/sms/send', async (req, res) => {
   try {
     const { recipient, message } = req.body;
+    const provider = normalizeProvider(req.body.provider);
 
     if (!recipient || !message) {
       return res.status(400).json({ 
@@ -97,45 +104,23 @@ app.post('/api/sms/send', async (req, res) => {
       });
     }
 
-    const username = process.env.SEMASMS_USERNAME;
-    const password = process.env.SEMASMS_PASSWORD;
-    const sender = process.env.SEMASMS_SENDER_ID;
-
-    if (!username || !password || !sender) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Missing API credentials or sender ID' 
-      });
-    }
+    assertProviderConfigured(provider);
+    const sender = providerSender(provider);
 
     // Create a batch for single SMS
-    const batchId = await createBatch(sender, message, 1);
-
-    const response = await fetch(SEMASMS_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': getAuthHeader(username, password)
-      },
-      body: JSON.stringify({
-        sender,
-        recipient,
-        message,
-        bulk: '1'
-      })
-    });
-
-    const data = await response.text();
-    const status = response.ok ? 'success' : 'failed';
+    const batchId = await createBatch(provider, sender, message, 1);
+    const result = await sendSms({ provider, recipient, message });
+    const status = result.ok ? 'success' : 'failed';
 
     // Save record to database
-    await saveSmsRecord(batchId, recipient, message, sender, status, response.ok ? data : null, response.ok ? null : data);
-    await completeBatch(batchId, response.ok ? 1 : 0, response.ok ? 0 : 1);
+    await saveSmsRecord(batchId, provider, recipient, message, sender, status, result.ok ? result.body : null, result.ok ? null : result.body);
+    await completeBatch(batchId, result.ok ? 1 : 0, result.ok ? 0 : 1);
     
     res.json({ 
-      success: response.ok, 
-      data,
-      statusCode: response.status,
+      success: result.ok,
+      data: result.body,
+      statusCode: result.statusCode,
+      provider,
       batchId
     });
   } catch (error) {
@@ -147,7 +132,7 @@ app.post('/api/sms/send', async (req, res) => {
   }
 });
 
-async function processBulkSms({ batchId, recipients, message, sendDelay, username, password, sender }) {
+async function processBulkSms({ batchId, provider, recipients, message, sendDelay, sender }) {
   let sent = 0;
   let failed = 0;
 
@@ -155,32 +140,18 @@ async function processBulkSms({ batchId, recipients, message, sendDelay, usernam
     const recipient = recipients[i];
 
     try {
-      const response = await fetch(SEMASMS_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': getAuthHeader(username, password)
-        },
-        body: JSON.stringify({
-          sender,
-          recipient,
-          message,
-          bulk: '1'
-        })
-      });
+      const result = await sendSms({ provider, recipient, message });
 
-      const data = await response.text();
-
-      if (response.ok) {
+      if (result.ok) {
         sent++;
-        await saveSmsRecord(batchId, recipient, message, sender, 'success', data, null);
+        await saveSmsRecord(batchId, provider, recipient, message, sender, 'success', result.body, null);
       } else {
         failed++;
-        await saveSmsRecord(batchId, recipient, message, sender, 'failed', null, data);
+        await saveSmsRecord(batchId, provider, recipient, message, sender, 'failed', null, result.body);
       }
     } catch (error) {
       failed++;
-      await saveSmsRecord(batchId, recipient, message, sender, 'failed', null, error.message);
+      await saveSmsRecord(batchId, provider, recipient, message, sender, 'failed', null, error.message);
     }
 
     if ((i + 1) % 10 === 0) {
@@ -199,6 +170,7 @@ async function processBulkSms({ batchId, recipients, message, sendDelay, usernam
 app.post('/api/sms/bulk', async (req, res) => {
   try {
     const { recipients, message, delay = 500 } = req.body;
+    const provider = normalizeProvider(req.body.provider);
 
     if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
       return res.status(400).json({ 
@@ -230,28 +202,19 @@ app.post('/api/sms/bulk', async (req, res) => {
 
     const sendDelay = Math.min(Math.max(Number(delay) || 500, 250), 5000);
 
-    const username = process.env.SEMASMS_USERNAME;
-    const password = process.env.SEMASMS_PASSWORD;
-    const sender = process.env.SEMASMS_SENDER_ID;
-
-    if (!username || !password || !sender) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Missing API credentials or sender ID' 
-      });
-    }
+    assertProviderConfigured(provider);
+    const sender = providerSender(provider);
 
     // Create batch record
-    const batchId = await createBatch(sender, message, recipients.length);
+    const batchId = await createBatch(provider, sender, message, recipients.length);
 
     setImmediate(() => {
       processBulkSms({
         batchId,
+        provider,
         recipients: [...recipients],
         message,
         sendDelay,
-        username,
-        password,
         sender
       }).catch(async error => {
         console.error(`Bulk SMS batch ${batchId} failed:`, error);
@@ -267,6 +230,7 @@ app.post('/api/sms/bulk', async (req, res) => {
     res.status(202).json({
       success: true,
       queued: true,
+      provider,
       results: {
         batchId,
         total: recipients.length,

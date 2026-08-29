@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const batchSchema = new mongoose.Schema({
+  provider: { type: String, enum: ['semasms', 'celcom'], required: true, default: 'semasms', index: true },
   sender_id: { type: String, required: true, maxlength: 50 },
   message: { type: String, required: true },
   total_recipients: { type: Number, required: true },
@@ -23,6 +24,7 @@ batchSchema.index({ created_at: -1 });
 batchSchema.index({ status: 1 });
 
 const recordSchema = new mongoose.Schema({
+  provider: { type: String, enum: ['semasms', 'celcom'], required: true, default: 'semasms', index: true },
   batch_id: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'SmsBatch',
@@ -83,8 +85,9 @@ export async function initDatabase() {
   return true;
 }
 
-export async function createBatch(senderId, message, totalRecipients) {
+export async function createBatch(provider, senderId, message, totalRecipients) {
   const batch = await SmsBatch.create({
+    provider,
     sender_id: senderId,
     message,
     total_recipients: totalRecipients,
@@ -116,6 +119,7 @@ export async function updateBatchProgress(batchId, sentCount, failedCount) {
 
 export async function saveSmsRecord(
   batchId,
+  provider,
   recipient,
   message,
   senderId,
@@ -125,6 +129,7 @@ export async function saveSmsRecord(
 ) {
   await SmsRecord.create({
     batch_id: batchId,
+    provider,
     recipient,
     message,
     sender_id: senderId,
