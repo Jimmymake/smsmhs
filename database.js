@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const batchSchema = new mongoose.Schema({
-  provider: { type: String, enum: ['semasms', 'celcom'], required: true, default: 'semasms', index: true },
+  provider: { type: String, enum: ['zeaworld', 'semasms'], required: true, default: 'zeaworld', index: true },
   sender_id: { type: String, required: true, maxlength: 50 },
   message: { type: String, required: true },
   total_recipients: { type: Number, required: true },
@@ -24,7 +24,7 @@ batchSchema.index({ created_at: -1 });
 batchSchema.index({ status: 1 });
 
 const recordSchema = new mongoose.Schema({
-  provider: { type: String, enum: ['semasms', 'celcom'], required: true, default: 'semasms', index: true },
+  provider: { type: String, enum: ['zeaworld', 'semasms'], required: true, default: 'zeaworld', index: true },
   batch_id: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'SmsBatch',

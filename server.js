@@ -70,8 +70,8 @@ function requireStaffToken(req, res, next) {
       || decoded.account?.role;
     const normalizedRole = role === 'superadmin' ? 'super_admin' : role;
 
-    if (!['support', 'admin', 'super_admin'].includes(normalizedRole)) {
-      return res.status(403).json({ success: false, error: 'Staff access required' });
+    if (!['admin', 'super_admin'].includes(normalizedRole)) {
+      return res.status(403).json({ success: false, error: 'Admin access required' });
     }
 
     req.staff = decoded;
